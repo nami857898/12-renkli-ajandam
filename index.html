@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>12 Renkli Ajandam</title>
+    <style>
+        :root {
+            --bg-color: #e3f2fd;
+            --header-color: #1565c0;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 15px;
+            transition: background 0.3s;
+        }
+        h2 { color: var(--header-color); text-align: center; }
+        .month-selector {
+            display: flex;
+            overflow-x: auto;
+            gap: 5px;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+        .month-btn {
+            padding: 8px 12px;
+            border: none;
+            border-radius: 5px;
+            background: #fff;
+            cursor: pointer;
+            white-space: nowrap;
+            font-weight: bold;
+        }
+        .month-btn.active { background: var(--header-color); color: #fff; }
+        textarea {
+            width: 100%;
+            height: 150px;
+            padding: 10px;
+            box-sizing: border-box;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            font-size: 16px;
+        }
+        .alarm-box {
+            margin-top: 10px;
+            background: #fff;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        button.save-btn {
+            width: 100%;
+            padding: 12px;
+            background: var(--header-color);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            margin-top: 10px;
+            cursor: pointer;
+        }
+        .history {
+            margin-top: 15px;
+            background: #fff;
+            padding: 10px;
+            border-radius: 5px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 14px;
+        }
+        .history-item {
+            border-bottom: 1px solid #eee;
+            padding: 5px 0;
+        }
+    </style>
+</head>
+<body>
+
+    <h2 id="pageTitle">Ocak Ayı</h2>
+    
+    <!-- 12 Ay Seçim Çubuğu -->
+    <div class="month-selector" id="monthSelector"></div>
+
+    <!-- Not Alanı -->
+    <textarea id="noteInput" placeholder="Notunuzu buraya yazın..."></textarea>
+
+    <!-- Alarm / Tarih Saat Seçimi -->
+    <div class="alarm-box">
+        <label>Alarm / Hatırlatıcı Zamanı (GG.AA.YYYY SS:DD):</label><br>
+        <input type="text" id="alarmInput" placeholder="Örn: 01.01.2016 15:21" style="width:100%; padding:8px; margin-top:5px;">
+    </div>
+
+    <button class="save-btn" onclick="saveNote()">Kaydet ve Güncelle</button>
+
+    <!-- Değişiklik Geçmişi -->
+    <h3>Değişiklik Geçmişi (Versiyonlar)</h3>
+    <div class="history" id="historyBox"></div>
+
+<script>
+    const months = [
+        { name: "Ocak", color: "#e3f2fd", header: "#1565c0" },
+        { name: "Şubat", color: "#e8f5e9", header: "#2e7d32" },
+        { name: "Mart", color: "#fffde7", header: "#fbc02d" },
+        { name: "Nisan", color: "#fce4ec", header: "#c2185b" },
+        { name: "Mayıs", color: "#f3e5f5", header: "#7b1fa2" },
+        { name: "Haziran", color: "#e0f7fa", header: "#00838f" },
+        { name: "Temmuz", color: "#fff3e0", header: "#ef6c00" },
+        { name: "Ağustos", color: "#efebe9", header: "#4e342e" },
+        { name: "Eylül", color: "#eceff1", header: "#37474f" },
+        { name: "Ekim", color: "#fbe9e7", header: "#d84315" },
+        { name: "Kasım", color: "#f1f8e9", header: "#558b2f" },
+        { name: "Aralık", color: "#e8eaf6", header: "#283593" }
+    ];
+
+    let currentMonth = new Date().getMonth(); // Güncel ay otomatik seçilir
+
+    function init() {
+        const selector = document.getElementById('monthSelector');
+        selector.innerHTML = '';
+        months.forEach((m, index) => {
+            let btn = document.createElement('button');
+            btn.className = 'month-btn ' + (index === currentMonth ? 'active' : '');
+            btn.innerText = m.name;
+            btn.onclick = () => switchMonth(index);
+            selector.appendChild(btn);
+        });
+        loadMonthData(currentMonth);
+    }
+
+    function switchMonth(index) {
+        currentMonth = index;
+        document.querySelectorAll('.month-btn').forEach((b, i) => {
+            b.classList.toggle('active', i === index);
+        });
+        loadMonthData(index);
+    }
+
+    function loadMonthData(index) {
+        let m = months[index];
+        document.documentElement.style.setProperty('--bg-color', m.color);
+        document.documentElement.style.setProperty('--header-color', m.header);
+        document.getElementById('pageTitle').innerText = m.name + " Ayı";
+
+        let data = JSON.parse(localStorage.getItem('ajanda_month_' + index) || '{"note":"","history":[]}');
+        document.getElementById('noteInput').value = data.note;
+        
+        let historyHtml = "";
+        data.history.forEach(h => {
+            historyHtml += `<div class="history-item"><b>${h.time}</b>: ${h.text}</div>`;
+        });
+        document.getElementById('historyBox').innerHTML = historyHtml || "Henüz değişiklik yapılmadı.";
+    }
+
+    function saveNote() {
+        let noteText = document.getElementById('noteInput').value;
+        let alarmVal = document.getElementById('alarmInput').value;
+        
+        // GG.AA.YYYY - SS:DD formatı
+        let now = new Date();
+        let dd = String(now.getDate()).padStart(2, '0');
+        let mm = String(now.getMonth() + 1).padStart(2, '0');
+        let yyyy = now.getFullYear();
+        let hh = String(now.getHours()).padStart(2, '0');
+        let min = String(now.getMinutes()).padStart(2, '0');
+        let timeStr = `${dd}.${mm}.${yyyy} - ${hh}:${min}`;
+
+        let data = JSON.parse(localStorage.getItem('ajanda_month_' + currentMonth) || '{"note":"","history":[]}');
+        data.note = noteText;
+        data.history.unshift({ time: timeStr, text: noteText.substring(0, 30) + "..." }); // Eski tarih silinmez, üste eklenir
+
+        localStorage.setItem('ajanda_month_' + currentMonth, JSON.stringify(data));
+        loadMonthData(currentMonth);
+        alert("Not kaydedildi ve tarih/saat geçmişe eklendi!");
+    }
+
+    init();
+</script>
+</body>
+</html>
