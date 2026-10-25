@@ -16,27 +16,44 @@
             padding: 15px;
             transition: background 0.3s;
         }
-        h2 { color: var(--header-color); text-align: center; }
-        .month-selector {
+        h2 { color: var(--header-color); text-align: center; margin: 5px 0 10px 0; }
+        
+        .month-selector, .note-selector {
             display: flex;
             overflow-x: auto;
             gap: 5px;
-            padding-bottom: 10px;
-            margin-bottom: 15px;
+            padding-bottom: 5px;
+            margin-bottom: 10px;
         }
-        .month-btn {
-            padding: 8px 12px;
+        .month-btn, .note-btn, .add-note-btn {
+            padding: 6px 12px;
             border: none;
             border-radius: 5px;
             background: #fff;
             cursor: pointer;
             white-space: nowrap;
             font-weight: bold;
+            font-size: 14px;
         }
-        .month-btn.active { background: var(--header-color); color: #fff; }
+        .month-btn.active, .note-btn.active { background: var(--header-color); color: #fff; }
+        .add-note-btn { background: #4caf50; color: white; }
+
+        /* Sol Üst Tarih / Saat Geçmişi Kutusu */
+        .top-timestamps {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 8px 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            margin-bottom: 10px;
+            border-left: 4px solid var(--header-color);
+            max-height: 90px;
+            overflow-y: auto;
+        }
+        .top-timestamps b { display: block; margin-bottom: 3px; color: var(--header-color); }
+
         textarea {
             width: 100%;
-            height: 150px;
+            height: 140px;
             padding: 10px;
             box-sizing: border-box;
             border-radius: 5px;
@@ -44,10 +61,11 @@
             font-size: 16px;
         }
         .alarm-box {
-            margin-top: 10px;
+            margin-top: 8px;
             background: #fff;
-            padding: 10px;
+            padding: 8px;
             border-radius: 5px;
+            font-size: 14px;
         }
         button.save-btn {
             width: 100%;
@@ -59,19 +77,7 @@
             font-size: 16px;
             margin-top: 10px;
             cursor: pointer;
-        }
-        .history {
-            margin-top: 15px;
-            background: #fff;
-            padding: 10px;
-            border-radius: 5px;
-            max-height: 200px;
-            overflow-y: auto;
-            font-size: 14px;
-        }
-        .history-item {
-            border-bottom: 1px solid #eee;
-            padding: 5px 0;
+            font-weight: bold;
         }
     </style>
 </head>
@@ -82,20 +88,25 @@
     <!-- 12 Ay Seçim Çubuğu -->
     <div class="month-selector" id="monthSelector"></div>
 
+    <!-- Ay İçi Not Sayfaları Seçim Çubuğu -->
+    <div class="note-selector" id="noteSelector"></div>
+
+    <!-- Sol Üst: Otomatik Alt Alta Eklenen Tarih ve Saatler -->
+    <div class="top-timestamps" id="topTimestamps">
+        <b>Düzenleme Geçmişi (Tarih ve Saat):</b>
+        <div id="timestampList">Henüz kayıt yapılmadı.</div>
+    </div>
+
     <!-- Not Alanı -->
     <textarea id="noteInput" placeholder="Notunuzu buraya yazın..."></textarea>
 
-    <!-- Alarm / Tarih Saat Seçimi -->
+    <!-- Alarm Zamanı -->
     <div class="alarm-box">
         <label>Alarm / Hatırlatıcı Zamanı (GG.AA.YYYY SS:DD):</label><br>
-        <input type="text" id="alarmInput" placeholder="Örn: 01.01.2016 15:21" style="width:100%; padding:8px; margin-top:5px;">
+        <input type="text" id="alarmInput" placeholder="Örn: 28.10.2026 14:30" style="width:100%; padding:6px; margin-top:4px; box-sizing:border-box;">
     </div>
 
-    <button class="save-btn" onclick="saveNote()">Kaydet ve Güncelle</button>
-
-    <!-- Değişiklik Geçmişi -->
-    <h3>Değişiklik Geçmişi (Versiyonlar)</h3>
-    <div class="history" id="historyBox"></div>
+    <button class="save-btn" onclick="saveCurrentNote()">Kaydet ve Tarih Ekle</button>
 
 <script>
     const months = [
@@ -113,50 +124,111 @@
         { name: "Aralık", color: "#e8eaf6", header: "#283593" }
     ];
 
-    let currentMonth = new Date().getMonth(); // Güncel ay otomatik seçilir
+    let currentMonth = new Date().getMonth();
+    let currentNoteIndex = 0;
+
+    // Veri Yapısı: Her ay için birden fazla not destekler
+    function getData() {
+        let data = localStorage.getItem('ajanda_v4_data');
+        if (!data) {
+            let initial = {};
+            for(let i=0; i<12; i++) {
+                initial[i] = [{ text: "", alarm: "", history: [] }];
+            }
+            localStorage.setItem('ajanda_v4_data', JSON.stringify(initial));
+            return initial;
+        }
+        return JSON.parse(data);
+    }
+
+    let db = getData();
 
     function init() {
+        renderMonths();
+        loadMonth(currentMonth);
+    }
+
+    function renderMonths() {
         const selector = document.getElementById('monthSelector');
         selector.innerHTML = '';
         months.forEach((m, index) => {
             let btn = document.createElement('button');
             btn.className = 'month-btn ' + (index === currentMonth ? 'active' : '');
             btn.innerText = m.name;
-            btn.onclick = () => switchMonth(index);
+            btn.onclick = () => {
+                currentMonth = index;
+                currentNoteIndex = 0;
+                renderMonths();
+                loadMonth(currentMonth);
+            };
             selector.appendChild(btn);
         });
-        loadMonthData(currentMonth);
     }
 
-    function switchMonth(index) {
-        currentMonth = index;
-        document.querySelectorAll('.month-btn').forEach((b, i) => {
-            b.classList.toggle('active', i === index);
-        });
-        loadMonthData(index);
-    }
-
-    function loadMonthData(index) {
-        let m = months[index];
+    function loadMonth(mIndex) {
+        let m = months[mIndex];
         document.documentElement.style.setProperty('--bg-color', m.color);
         document.documentElement.style.setProperty('--header-color', m.header);
         document.getElementById('pageTitle').innerText = m.name + " Ayı";
 
-        let data = JSON.parse(localStorage.getItem('ajanda_month_' + index) || '{"note":"","history":[]}');
-        document.getElementById('noteInput').value = data.note;
-        
-        let historyHtml = "";
-        data.history.forEach(h => {
-            historyHtml += `<div class="history-item"><b>${h.time}</b>: ${h.text}</div>`;
-        });
-        document.getElementById('historyBox').innerHTML = historyHtml || "Henüz değişiklik yapılmadı.";
+        if (!db[mIndex] || db[mIndex].length === 0) {
+            db[mIndex] = [{ text: "", alarm: "", history: [] }];
+        }
+
+        renderNoteTabs();
+        loadNote(currentNoteIndex);
     }
 
-    function saveNote() {
-        let noteText = document.getElementById('noteInput').value;
-        let alarmVal = document.getElementById('alarmInput').value;
+    function renderNoteTabs() {
+        const noteSelector = document.getElementById('noteSelector');
+        noteSelector.innerHTML = '';
+        let notes = db[currentMonth];
         
-        // GG.AA.YYYY - SS:DD formatı
+        notes.forEach((note, idx) => {
+            let btn = document.createElement('button');
+            btn.className = 'note-btn ' + (idx === currentNoteIndex ? 'active' : '');
+            btn.innerText = "Not " + (idx + 1);
+            btn.onclick = () => {
+                currentNoteIndex = idx;
+                renderNoteTabs();
+                loadNote(currentNoteIndex);
+            };
+            noteSelector.appendChild(btn);
+        });
+
+        // "+ Yeni Not" Butonu (Örn: Ekim ayı için 7 taneye kadar veya daha fazla açabilirsiniz)
+        let addBtn = document.createElement('button');
+        addBtn.className = 'add-note-btn';
+        addBtn.innerText = "+ Yeni Not";
+        addBtn.onclick = () => {
+            db[currentMonth].push({ text: "", alarm: "", history: [] });
+            saveDB();
+            currentNoteIndex = db[currentMonth].length - 1;
+            renderNoteTabs();
+            loadNote(currentNoteIndex);
+        };
+        noteSelector.appendChild(addBtn);
+    }
+
+    function loadNote(nIndex) {
+        let note = db[currentMonth][nIndex];
+        document.getElementById('noteInput').value = note.text || "";
+        document.getElementById('alarmInput').value = note.alarm || "";
+
+        // Sol üstteki tarih/saat listesini güncelle
+        let tsList = document.getElementById('timestampList');
+        if (note.history && note.history.length > 0) {
+            tsList.innerHTML = note.history.map(t => `<div>• ${t}</div>`).join('');
+        } else {
+            tsList.innerHTML = "Henüz değişiklik yapılmadı.";
+        }
+    }
+
+    function saveCurrentNote() {
+        let textVal = document.getElementById('noteInput').value;
+        let alarmVal = document.getElementById('alarmInput').value;
+
+        // Anlık Tarih ve Saat (GG.AA.YYYY - SS:DD)
         let now = new Date();
         let dd = String(now.getDate()).padStart(2, '0');
         let mm = String(now.getMonth() + 1).padStart(2, '0');
@@ -165,14 +237,61 @@
         let min = String(now.getMinutes()).padStart(2, '0');
         let timeStr = `${dd}.${mm}.${yyyy} - ${hh}:${min}`;
 
-        let data = JSON.parse(localStorage.getItem('ajanda_month_' + currentMonth) || '{"note":"","history":[]}');
-        data.note = noteText;
-        data.history.unshift({ time: timeStr, text: noteText.substring(0, 30) + "..." }); // Eski tarih silinmez, üste eklenir
+        let note = db[currentMonth][currentNoteIndex];
+        note.text = textVal;
+        note.alarm = alarmVal;
 
-        localStorage.setItem('ajanda_month_' + currentMonth, JSON.stringify(data));
-        loadMonthData(currentMonth);
-        alert("Not kaydedildi ve tarih/saat geçmişe eklendi!");
+        // Her güncellemede sol üst için tarih-saati alt alta ekle (en yeniler üstte)
+        if (!note.history) note.history = [];
+        note.history.unshift(timeStr);
+
+        saveDB();
+        loadNote(currentNoteIndex);
+        alert("Not kaydedildi ve tarih sol üste eklendi!");
     }
+
+    function saveDB() {
+        localStorage.setItem('ajanda_v4_data', JSON.stringify(db));
+    }
+
+    // Alarm Kontrol Sistemi
+    function playAlarmSound() {
+        try {
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            oscillator.start();
+            setTimeout(() => { oscillator.stop(); }, 1000);
+        } catch(e) {}
+    }
+
+    setInterval(() => {
+        let now = new Date();
+        let dd = String(now.getDate()).padStart(2, '0');
+        let mm = String(now.getMonth() + 1).padStart(2, '0');
+        let yyyy = now.getFullYear();
+        let hh = String(now.getHours()).padStart(2, '0');
+        let min = String(now.getMinutes()).padStart(2, '0');
+        let currentFormatted = `${dd}.${mm}.${yyyy} - ${hh}:${min}`;
+
+        for (let mKey in db) {
+            db[mKey].forEach((note, nIdx) => {
+                if (note.alarm && note.alarm.trim() === currentFormatted) {
+                    playAlarmSound();
+                    alert("ALARM ÇALIYOR! (Ay: " + months[mKey].name + ", Not " + (nIdx+1) + ")");
+                    note.alarm = "";
+                    saveDB();
+                    if (parseInt(mKey) === currentMonth && nIdx === currentNoteIndex) {
+                        document.getElementById('alarmInput').value = "";
+                    }
+                }
+            });
+        }
+    }, 10000);
 
     init();
 </script>
